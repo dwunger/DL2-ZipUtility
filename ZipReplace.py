@@ -1,3 +1,4 @@
+import argparse
 import gzip
 import json
 import os
@@ -356,12 +357,27 @@ class Zip:
         handles = get_files_with_signature(special_handle)
         gather_and_zip_files(handles, self.path)
         process_and_zip_files(handles, self.path, signature=old, replacement=new)
-        
+'''
 def main():
     # Move to the root folder containing data0.pak, data1.pak, and master1.11.4.txt
     os.chdir('C:/Users/dento/Desktop/Visual Studio Workspaces/modding/dl2/misc-tools/Tree Amortizer')
     zip = Zip('data2.pak')
     zip.replace('TinyObjectDensity;Low', 'TinyObjectDensity;Max') 
+    
+Command Line Version:
+''' 
+def main():
+    parser = argparse.ArgumentParser(description="Process and replace strings in a zip archive.")
+    parser.add_argument('output_file', help="The name of the zip archive to process.")
+    parser.add_argument('old_string', nargs='?', default='TinyObjectDensity;Low', help="The old string to replace. (default: TinyObjectDensity;Low)")
+    parser.add_argument('new_string', nargs='?', default='TinyObjectDensity;Max', help="The new string to replace with. (default: TinyObjectDensity;Max)")
+    args = parser.parse_args()
+
+    # Move to the root folder containing the output file
+    os.chdir(os.path.dirname(args.output_file))
+
+    zip = Zip(args.output_file)
+    zip.replace(args.old_string, args.new_string)
 
 if __name__ == '__main__':
     main()
