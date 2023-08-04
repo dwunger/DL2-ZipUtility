@@ -1,12 +1,29 @@
 import gzip
+import json
 import os
 import shutil
+import subprocess
 import tempfile
 import timeit
 import zipfile
 import zlib
 from pathlib import Path
 
+
+def delete_file_from_zip(zip_file_path, file_to_delete):
+    input_data = {
+        "ZipFilePath": zip_file_path,
+        "FileToDelete": file_to_delete
+    }
+    json_input = json.dumps(input_data)
+    result = subprocess.run(["ZipProc.exe"], input=json_input, text=True, capture_output=True)
+
+    try:
+        result_data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        result_data = {"Success": False, "Path": "Invalid JSON format."}
+
+    return result_data
 
 class VirtualZip:
     def __init__(self, zip_path):
@@ -158,6 +175,19 @@ def copy_from_old_zip(zip_write, item, zip_read):
     """Copy a file from the original zip to the new zip."""
     zip_write.writestr(item, zip_read.read(item.filename))
 
+
+def standard_lib_zipfile_replace(data2_zip_file_path, tuple_file_path, data):
+    temp_filename = tempfile.mktemp()    
+    with zipfile.ZipFile(data2_zip_file_path, 'r') as data2_zip_read:
+        with zipfile.ZipFile(temp_filename, 'w', zipfile.ZIP_DEFLATED) as temp_zip_write:
+            for data2_item in data2_zip_read.infolist():
+                if data2_item.filename != tuple_file_path:
+                    copy_from_old_zip(temp_zip_write, data2_item, data2_zip_read)
+                else:
+                    write_new_data(temp_zip_write, tuple_file_path, data)
+
+    replace_zip_file(temp_filename, data2_zip_file_path)
+    
 def replace_in_zip_file(data2_zip_file_path, tuple_file_path, data):
     """Replace a file in a zip archive with new data.
 
@@ -165,26 +195,13 @@ def replace_in_zip_file(data2_zip_file_path, tuple_file_path, data):
     file_path: path to the file inside the zip archive to replace
     data: the new data to write to the file
     """
-
-    temp_filename = tempfile.mktemp()
-
-    with zipfile.ZipFile(data2_zip_file_path, 'r') as data2_zip_read:
-
-        with zipfile.ZipFile(temp_filename, 'w', zipfile.ZIP_DEFLATED) as temp_zip_write:
-
-            for data2_item in data2_zip_read.infolist():
-
-                if data2_item.filename != tuple_file_path:
-                    print('condition 1')
-                    copy_from_old_zip(temp_zip_write, data2_item, data2_zip_read)
-                else:
-                    print('condition 2\n'*100)
-                    
-                    write_new_data(temp_zip_write, tuple_file_path, data)
-
-
-    replace_zip_file(temp_filename, data2_zip_file_path)
-    
+    with zipfile.ZipFile(data2_zip_file_path, 'a') as spliced_zip:
+        
+        deletion = delete_file_from_zip(data2_zip_file_path, tuple_file_path) 
+        if deletion['Success']:
+            write_new_data(spliced_zip, tuple_file_path, data)
+        else:
+            standard_lib_zipfile_replace(data2_zip_file_path, tuple_file_path, data)
 
 # File handling functions
 
@@ -269,8 +286,6 @@ def format_raw_paths(raw_paths):
     
     return list(paths)
 
-
-
 def get_files_with_signature(signature):
     """Return a list of tuples [(archive, path_to_file), ...] with files containing the signature."""
     lines = get_lines_from_file('master1.11.4.txt')
@@ -295,9 +310,9 @@ def process_and_zip_files(file_handles, output_file='data2.pak', signature='rand
     try:
         with zipfile.ZipFile(output_file, 'r', zipfile.ZIP_DEFLATED) as zip:
             # Iterate over file handles
-            vZip = VirtualZip(output_file)
-            vZip.open()
-            print(vZip.filenames())
+            # vZip = VirtualZip(output_file)
+            # vZip.open()
+            # print(vZip.filenames())
             for _, path_to_file in file_handles:
                 # If path_to_file is in the archive, process its content and replace it in the zip
                 
@@ -308,8 +323,8 @@ def process_and_zip_files(file_handles, output_file='data2.pak', signature='rand
 
                         content = read_and_decode_file_from_zip(output_file, path_to_file)
                         content = content.replace(signature, replacement)
-                        vZip.write(path_to_file, content)
-                        # process_and_replace_in_zip(output_file, path_to_file, content, signature, replacement)
+                        # vZip.write(path_to_file, content)
+                        process_and_replace_in_zip(output_file, path_to_file, content, signature, replacement)
 
                         processed_files += 1
                         remaining_files = total_files - processed_files
@@ -317,18 +332,15 @@ def process_and_zip_files(file_handles, output_file='data2.pak', signature='rand
 
                     except (UnicodeDecodeError, zlib.error, gzip.BadGzipFile) as e:
                         print(f"Error processing file {path_to_file}: {e}")
-            vZip.close()
+            # vZip.close()
     except zipfile.BadZipFile as e:
         print(f"Error opening zip file {output_file}: {e}")
 
-# class Mod:
-#     def __init__(self) -> None:
-        
 class Zip:
     def __init__(self, path) -> None:
         self.path = path
     
-    def replace(self, old, new):
+    def replace(self, old, new, special_handle = None):
         '''
         Replaces all instances of string in every file within a zipfile
         
@@ -338,20 +350,18 @@ class Zip:
         ## arg2 -> str
         ## new 
         '''
-        handles = get_files_with_signature(old)
+        if special_handle == None:
+            special_handle = old
+
+        handles = get_files_with_signature(special_handle)
         gather_and_zip_files(handles, self.path)
         process_and_zip_files(handles, self.path, signature=old, replacement=new)
         
-    
 def main():
     # Move to the root folder containing data0.pak, data1.pak, and master1.11.4.txt
     os.chdir('C:/Users/dento/Desktop/Visual Studio Workspaces/modding/dl2/misc-tools/Tree Amortizer')
     zip = Zip('data2.pak')
-    zip.replace('TinyObjectDensity;Low', 'TinyObjectDensity;Max')
-    # handles = get_files_with_signature('TinyObjectDensity;')
-    # gather_and_zip_files(handles, 'data2.pak')
-    
-    # process_and_zip_files(handles, 'data2.pak', signature='TinyObjectDensity;Low', replacement='TinyObjectDensity;Max')    
+    zip.replace('TinyObjectDensity;Low', 'TinyObjectDensity;Max') 
 
 if __name__ == '__main__':
     main()
